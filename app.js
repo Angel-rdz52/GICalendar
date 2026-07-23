@@ -2,6 +2,37 @@
 const DOW = ["L", "M", "X", "J", "V", "S", "D"];
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
+// colores por categoria: version viva (dias de hoy en adelante) y mutada (dias ya pasados)
+const CATEGORIA_COLOR = {
+  evento:       { viva: "#7EC8E3", muted: "#3E5A66" },
+  fijo:         { viva: "#E39FC2", muted: "#6B4652" },
+  exploracion:  { viva: "#A78BFA", muted: "#463B66" }
+};
+
+// arma un degradado de corte duro: oscurecido en los dias ya pasados de esta barra, color normal de hoy en adelante
+function degradadoEvento(diasSemana, colIni, colFin, hoy, categoria) {
+  const colores = CATEGORIA_COLOR[categoria] || CATEGORIA_COLOR.evento;
+  const totalCols = colFin - colIni + 1;
+
+  let colHoyOEnAdelante = -1;
+  for (let c = colIni; c <= colFin; c++) {
+    const d = diasSemana[c];
+    if (d && !isBefore(d, hoy)) { colHoyOEnAdelante = c; break; }
+  }
+
+  if (colHoyOEnAdelante === -1) {
+    // toda la porcion de esta semana ya paso
+    return colores.muted;
+  }
+  if (colHoyOEnAdelante === colIni) {
+    // todavia no empezo a pasar nada de esta porcion
+    return colores.viva;
+  }
+
+  const corte = ((colHoyOEnAdelante - colIni) / totalCols) * 100;
+  return `linear-gradient(to right, ${colores.muted} 0%, ${colores.muted} ${corte}%, ${colores.viva} ${corte}%, ${colores.viva} 100%)`;
+}
+
 function parseISO(s) {
   const [y, m, d] = s.split("-").map(Number);
   return new Date(y, m - 1, d);
@@ -23,7 +54,7 @@ function mondayIndex(date) { return (date.getDay() + 6) % 7; }
 
 // ---------- Estado ----------
 let calendarData = null;
-let state = { claimedEventos: {}, diariasReclamadas: 0, bendicionActiva: false, bendicionReclamadas: 0 };
+let state = { claimedEventos: {}, diariasReclamadas: 0, bendicionActiva: false, bendicionDiasRestantes: 0, protosActuales: 0, deseosActuales: 0 };
 
 function storageKey(calId) { return `genshin-protos::${calId}`; }
 
@@ -39,32 +70,63 @@ function saveState(calId) {
 }
 
 // ---------- Carga de calendarios ----------
-async function init() {
-  const idxResp = await fetch("calendarios/index.json");
-  const idx = await idxResp.json();
-  const hoy = todayAtMidnight();
+async function fetchJSON(url) {
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (e) {
+    throw new Error(`No se pudo conectar para pedir "${url}" (¿servidor caído o ruta mal escrita?)`);
+  }
+  if (!resp.ok) {
+    throw new Error(`"${url}" respondió ${resp.status} ${resp.statusText} — revisá que el archivo exista exactamente en esa ruta`);
+  }
+  try {
+    return await resp.json();
+  } catch (e) {
+    throw new Error(`"${url}" no es un JSON válido (¿archivo corrupto o vino HTML de error en vez de JSON?)`);
+  }
+}
 
-  // Solo ocultamos calendarios cuya fecha fin ya pasó Y no es el único disponible
-  const vigentes = idx.calendarios.filter(c => !isBefore(parseISO(c.fin), hoy));
-  const lista = vigentes.length ? vigentes : idx.calendarios;
+async function init() {
+  const actual = await fetchJSON("calendario-actual.json");
+
+  let siguiente = null;
+  try {
+    siguiente = await fetchJSON("calendario-siguiente.json");
+  } catch (e) {
+    console.warn("No se pudo leer calendario-siguiente.json (opcional):", e.message);
+  }
 
   const select = document.getElementById("calendar-select");
   select.innerHTML = "";
-  lista.forEach(c => {
-    const opt = document.createElement("option");
-    opt.value = c.archivo;
-    opt.textContent = c.nombre;
-    select.appendChild(opt);
-  });
 
-  select.addEventListener("change", () => cargarCalendario(select.value));
-  await cargarCalendario(select.value);
+  const optActual = document.createElement("option");
+  optActual.value = "calendario-actual.json";
+  optActual.textContent = actual.version || "Fase actual";
+  select.appendChild(optActual);
+
+  if (siguiente) {
+    const optSig = document.createElement("option");
+    if (siguiente.estado === "disponible") {
+      optSig.value = "calendario-siguiente.json";
+      optSig.textContent = siguiente.version || "Próxima fase";
+    } else {
+      optSig.value = "";
+      optSig.disabled = true;
+      optSig.textContent = `${siguiente.version || "Próxima fase"} (en proceso)`;
+    }
+    select.appendChild(optSig);
+  }
+
+  select.addEventListener("change", () => {
+    if (select.value) cargarCalendario(select.value);
+  });
+  await cargarCalendario("calendario-actual.json");
 }
 
 async function cargarCalendario(archivo) {
-  const resp = await fetch(`calendarios/${archivo}`);
-  calendarData = await resp.json();
-  state = { claimedEventos: {}, diariasReclamadas: 0, bendicionActiva: false, bendicionReclamadas: 0 };
+  calendarData = await fetchJSON(archivo);
+  state = { claimedEventos: {}, diariasReclamadas: 0, bendicionActiva: false, bendicionDiasRestantes: 0, protosActuales: 0, deseosActuales: 0 };
   loadState(calendarData.id);
   render();
 }
@@ -79,7 +141,6 @@ function render() {
 
   renderMeses(ini, fin);
   renderFuentesDiarias(ini, fin);
-  renderEventos();
   actualizarTotal();
   bindControlesGlobales(ini, fin);
 }
@@ -111,67 +172,111 @@ function renderMes(year, month, rangoIni, rangoFin, hoy) {
   titulo.textContent = `${MESES[month]} ${year}`;
   wrap.appendChild(titulo);
 
-  const grid = document.createElement("div");
-  grid.className = "grid";
+  const dow = document.createElement("div");
+  dow.className = "grid grid--dow";
   DOW.forEach(d => {
     const el = document.createElement("div");
     el.className = "grid__dow";
     el.textContent = d;
-    grid.appendChild(el);
+    dow.appendChild(el);
   });
+  wrap.appendChild(dow);
 
   const primerDia = new Date(year, month, 1);
   const ultimoDia = new Date(year, month + 1, 0);
+
+  // armamos la grilla de fechas del mes en semanas de 7 (lunes a domingo)
+  const dias = [];
   const huecosIniciales = mondayIndex(primerDia);
+  for (let i = 0; i < huecosIniciales; i++) dias.push(null);
+  for (let d = 1; d <= ultimoDia.getDate(); d++) dias.push(new Date(year, month, d));
+  while (dias.length % 7 !== 0) dias.push(null);
 
-  for (let i = 0; i < huecosIniciales; i++) {
-    const vacio = document.createElement("div");
-    vacio.className = "day day--empty";
-    grid.appendChild(vacio);
+  for (let i = 0; i < dias.length; i += 7) {
+    wrap.appendChild(renderSemana(dias.slice(i, i + 7), rangoIni, rangoFin, hoy));
   }
 
-  for (let d = 1; d <= ultimoDia.getDate(); d++) {
-    const date = new Date(year, month, d);
-    grid.appendChild(renderDia(date, rangoIni, rangoFin, hoy));
-  }
-
-  wrap.appendChild(grid);
   return wrap;
 }
 
-function renderDia(date, rangoIni, rangoFin, hoy) {
-  const cell = document.createElement("div");
-  const eventosDia = (calendarData.eventos || []).filter(ev =>
-    inRange(date, parseISO(ev.inicio), parseISO(ev.fin))
-  );
-  const esPasado = isBefore(date, hoy);
-  const esHoy = isSameDay(date, hoy);
-  const fueraDeRango = isBefore(date, rangoIni) || isBefore(rangoFin, date);
+function renderSemana(diasSemana, rangoIni, rangoFin, hoy) {
+  const semana = document.createElement("div");
+  semana.className = "semana";
 
-  cell.className = "day";
-  if (esPasado) cell.classList.add("day--past");
-  if (esHoy) cell.classList.add("day--today");
-  if (eventosDia.length) cell.classList.add("day--tiene-evento");
-  if (fueraDeRango) cell.style.opacity = "0.35";
+  // fila de numeros de dia
+  diasSemana.forEach((date, col) => {
+    const cell = document.createElement("div");
+    cell.className = "day";
+    cell.style.gridColumn = String(col + 1);
+    cell.style.gridRow = "1";
 
-  const num = document.createElement("span");
-  num.className = "day__num";
-  num.textContent = date.getDate();
-  cell.appendChild(num);
+    if (!date) {
+      cell.classList.add("day--empty");
+    } else {
+      const esPasado = isBefore(date, hoy);
+      const esHoy = isSameDay(date, hoy);
+      const fueraDeRango = isBefore(date, rangoIni) || isBefore(rangoFin, date);
+      if (esPasado) cell.classList.add("day--past");
+      if (esHoy) cell.classList.add("day--today");
+      if (fueraDeRango) cell.style.opacity = "0.35";
+      const num = document.createElement("span");
+      num.className = "day__num";
+      num.textContent = date.getDate();
+      cell.appendChild(num);
+    }
+    semana.appendChild(cell);
+  });
 
-  if (eventosDia.length) {
-    const dots = document.createElement("div");
-    dots.className = "day__dots";
-    eventosDia.slice(0, 4).forEach(ev => {
-      const dot = document.createElement("span");
-      dot.className = `dot dot--${ev.categoria || "evento"}`;
-      dot.title = ev.nombre;
-      dots.appendChild(dot);
+  // eventos que tocan esta semana, ordenados por inicio y duracion
+  const primerDiaSemana = diasSemana.find(d => d);
+  const ultimoDiaSemana = [...diasSemana].reverse().find(d => d);
+  if (!primerDiaSemana) return semana;
+
+  const eventosSemana = (calendarData.eventos || [])
+    .filter(ev => ev.cantidad > 0 || ev.nota) // se muestran igual eventos con cantidad 0 si tienen nota, para recordar completarlos
+    .map(ev => ({ ev, ini: parseISO(ev.inicio), fin: parseISO(ev.fin) }))
+    .filter(({ ini, fin }) => inRange(primerDiaSemana, ini, fin) || inRange(ultimoDiaSemana, ini, fin) || (isBefore(ini, primerDiaSemana) && isBefore(ultimoDiaSemana, fin)) || inRange(ini, primerDiaSemana, ultimoDiaSemana))
+    .sort((a, b) => a.ini - b.ini || (b.fin - b.ini) - (a.fin - a.ini));
+
+  // asignar "carriles" (lanes) para que no se superpongan visualmente
+  const lanes = []; // cada lane guarda la ultima columna ocupada
+  eventosSemana.forEach(item => {
+    const colIni = diasSemana.findIndex(d => d && !isBefore(d, item.ini) && !isBefore(item.fin, d));
+    let colFin = colIni;
+    diasSemana.forEach((d, idx) => { if (d && inRange(d, item.ini, item.fin)) colFin = idx; });
+    if (colIni === -1) return;
+
+    let laneIdx = lanes.findIndex(occupiedUntil => occupiedUntil < colIni);
+    if (laneIdx === -1) { laneIdx = lanes.length; lanes.push(-1); }
+    lanes[laneIdx] = colFin;
+
+    const bar = document.createElement("div");
+    const categoria = item.ev.categoria || "evento";
+    bar.className = "evento-bar";
+    if (state.claimedEventos[item.ev.id]) bar.classList.add("evento-bar--claimed");
+
+    bar.style.background = degradadoEvento(diasSemana, colIni, colFin, hoy, categoria);
+
+    bar.style.gridColumn = `${colIni + 1} / ${colFin + 2}`;
+    bar.style.gridRow = String(laneIdx + 2);
+
+    bar.innerHTML = `<span class="evento-bar__nombre">${item.ev.nombre}</span><span class="evento-bar__cantidad">◈${item.ev.cantidad}</span>`;
+    bar.title = `${item.ev.nombre} — ${item.ev.cantidad} protogemas (tocá para marcar como reclamado)`;
+
+    bar.addEventListener("click", () => {
+      state.claimedEventos[item.ev.id] = !state.claimedEventos[item.ev.id];
+      saveState(calendarData.id);
+      renderMeses(parseISO(calendarData.fechaInicio), parseISO(calendarData.fechaFin));
+      actualizarTotal();
     });
-    cell.appendChild(dots);
-  }
 
-  return cell;
+    semana.appendChild(bar);
+  });
+
+  const filas = 1 + Math.max(1, lanes.length);
+  semana.style.gridTemplateRows = `auto repeat(${Math.max(1, lanes.length)}, 22px)`;
+
+  return semana;
 }
 
 function renderFuentesDiarias(ini, fin) {
@@ -183,52 +288,12 @@ function renderFuentesDiarias(ini, fin) {
   diariasInput.max = totalDias;
 
   const bendicionCheck = document.getElementById("bendicion-activa");
-  const bendicionInput = document.getElementById("bendicion-reclamadas");
+  const bendicionDiasInput = document.getElementById("bendicion-dias-restantes");
   bendicionCheck.checked = state.bendicionActiva;
-  bendicionInput.disabled = !state.bendicionActiva;
-  bendicionInput.value = state.bendicionReclamadas;
-  bendicionInput.max = totalDias;
-}
+  bendicionDiasInput.value = state.bendicionDiasRestantes;
 
-function renderEventos() {
-  const cont = document.getElementById("eventos-lista");
-  cont.querySelectorAll(".evento-row").forEach(n => n.remove());
-
-  (calendarData.eventos || []).forEach(ev => {
-    const row = document.createElement("label");
-    row.className = `evento-row evento-row--${ev.categoria || "evento"}`;
-    if (state.claimedEventos[ev.id]) row.classList.add("evento-row--claimed");
-
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.checked = !!state.claimedEventos[ev.id];
-    check.addEventListener("change", () => {
-      state.claimedEventos[ev.id] = check.checked;
-      row.classList.toggle("evento-row--claimed", check.checked);
-      saveState(calendarData.id);
-      actualizarTotal();
-    });
-
-    const info = document.createElement("div");
-    info.style.flex = "1";
-    const nombre = document.createElement("div");
-    nombre.className = "evento-row__nombre";
-    nombre.textContent = ev.nombre;
-    const fechas = document.createElement("div");
-    fechas.className = "evento-row__fechas";
-    fechas.textContent = `${fmtFecha(parseISO(ev.inicio))} – ${fmtFecha(parseISO(ev.fin))}` + (ev.nota ? ` · ${ev.nota}` : "");
-    info.appendChild(nombre);
-    info.appendChild(fechas);
-
-    const cantidad = document.createElement("div");
-    cantidad.className = "evento-row__cantidad";
-    cantidad.textContent = `◈ ${ev.cantidad}`;
-
-    row.appendChild(check);
-    row.appendChild(info);
-    row.appendChild(cantidad);
-    cont.appendChild(row);
-  });
+  document.getElementById("protos-actuales").value = state.protosActuales;
+  document.getElementById("deseos-actuales").value = state.deseosActuales;
 }
 
 function bindControlesGlobales(ini, fin) {
@@ -242,15 +307,54 @@ function bindControlesGlobales(ini, fin) {
   };
 
   const bendicionCheck = document.getElementById("bendicion-activa");
-  const bendicionInput = document.getElementById("bendicion-reclamadas");
+  const bendicionDiasInput = document.getElementById("bendicion-dias-restantes");
+  const btnEditar = document.getElementById("btn-editar-bendicion");
+  const btnRenovar = document.getElementById("btn-renovar-bendicion");
+
+  function pedirDiasRestantes(valorActual) {
+    const resp = prompt("¿Cuántos días de Bendición Lunar te quedan?", valorActual);
+    if (resp === null) return null; // cancelado
+    const n = Math.max(0, Math.round(Number(resp)) || 0);
+    return n;
+  }
+
   bendicionCheck.onchange = () => {
     state.bendicionActiva = bendicionCheck.checked;
-    bendicionInput.disabled = !state.bendicionActiva;
+    if (state.bendicionActiva && !state.bendicionDiasRestantes) {
+      const n = pedirDiasRestantes(30);
+      if (n !== null) state.bendicionDiasRestantes = n;
+    }
+    bendicionDiasInput.value = state.bendicionDiasRestantes;
     saveState(calendarData.id);
     actualizarTotal();
   };
-  bendicionInput.oninput = () => {
-    state.bendicionReclamadas = clamp(Number(bendicionInput.value) || 0, 0, totalDias);
+
+  btnEditar.onclick = () => {
+    const n = pedirDiasRestantes(state.bendicionDiasRestantes);
+    if (n === null) return;
+    state.bendicionDiasRestantes = n;
+    bendicionDiasInput.value = n;
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+
+  btnRenovar.onclick = () => {
+    state.bendicionDiasRestantes = (state.bendicionDiasRestantes || 0) + 30;
+    bendicionDiasInput.value = state.bendicionDiasRestantes;
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+
+  const protosInput = document.getElementById("protos-actuales");
+  protosInput.oninput = () => {
+    state.protosActuales = Math.max(0, Number(protosInput.value) || 0);
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+
+  const deseosInput = document.getElementById("deseos-actuales");
+  deseosInput.oninput = () => {
+    state.deseosActuales = Math.max(0, Number(deseosInput.value) || 0);
     saveState(calendarData.id);
     actualizarTotal();
   };
@@ -266,19 +370,21 @@ function actualizarTotal() {
   const potencialDiarias = calendarData.fuentesDiarias.diarias.cantidad * totalDias;
   const yaReclamadasDiarias = calendarData.fuentesDiarias.diarias.cantidad * state.diariasReclamadas;
 
-  let potencialBendicion = 0, yaReclamadaBendicion = 0;
-  if (state.bendicionActiva) {
-    potencialBendicion = calendarData.fuentesDiarias.bendicionLunar.cantidad * totalDias;
-    yaReclamadaBendicion = calendarData.fuentesDiarias.bendicionLunar.cantidad * state.bendicionReclamadas;
-  }
+  // la Bendición Lunar ya representa "lo que falta" directamente en días restantes, no hay nada que restarle
+  const aporteBendicion = state.bendicionActiva
+    ? calendarData.fuentesDiarias.bendicionLunar.cantidad * (state.bendicionDiasRestantes || 0)
+    : 0;
 
   const eventos = calendarData.eventos || [];
   const potencialEventos = eventos.reduce((acc, ev) => acc + ev.cantidad, 0);
   const yaReclamadosEventos = eventos.reduce((acc, ev) => acc + (state.claimedEventos[ev.id] ? ev.cantidad : 0), 0);
 
-  const potencialTotal = potencialDiarias + potencialBendicion + potencialEventos;
-  const yaReclamado = yaReclamadasDiarias + yaReclamadaBendicion + yaReclamadosEventos;
-  const total = Math.max(0, potencialTotal - yaReclamado);
+  const potencialTotal = potencialDiarias + potencialEventos;
+  const yaReclamado = yaReclamadasDiarias + yaReclamadosEventos;
+  const restanteVersion = Math.max(0, potencialTotal - yaReclamado) + aporteBendicion;
+
+  const yaTengo = (state.protosActuales || 0) + (state.deseosActuales || 0) * 160;
+  const total = restanteVersion + yaTengo;
 
   const deseos = Math.floor(total / 160);
   const resto = total % 160;
@@ -288,21 +394,10 @@ function actualizarTotal() {
   document.getElementById("resto-protos").textContent = resto > 0 ? `(sobran ${resto} ◈ para el próximo deseo)` : "";
 }
 
-// ---------- Barra flotante: se retrae al subir, aparece al bajar ----------
-(function setupBarraFlotante() {
-  let lastY = window.scrollY;
-  const barra = document.getElementById("barra-flotante");
-  window.addEventListener("scroll", () => {
-    const y = window.scrollY;
-    if (y > lastY && y > 80) barra.classList.add("oculta");
-    else barra.classList.remove("oculta");
-    lastY = y;
-  }, { passive: true });
-})();
-
 init().catch(err => {
   console.error(err);
   document.getElementById("app").innerHTML =
-    `<p style="color:#E39FC2">Error cargando el calendario. Si abriste el archivo con doble clic, corré un servidor local (ej: <code>php -S localhost:8000</code>) y entrá por http://localhost:8000</p>`;
+    `<p style="color:#E39FC2"><strong>Error:</strong> ${err.message}</p>
+     <p style="color:#A9B0D6;font-size:0.85rem">Si abriste el archivo con doble clic (file://), corré un servidor local (ej: <code>php -S localhost:8000</code>) y entrá por http://localhost:8000. La estructura de carpetas (css/, js/, calendarios/) tiene que mantenerse tal cual — son parte de las rutas que usa la página.</p>`;
 });
 
