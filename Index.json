@@ -1,0 +1,12 @@
+{
+  "calendarios": [
+    {
+      "id": "luna-viii-fase2",
+      "nombre": "Luna VIII — Fase 2",
+      "archivo": "luna-viii-fase2.json",
+      "inicio": "2026-07-21",
+      "fin": "2026-08-11"
+    }
+  ]
+}
+
