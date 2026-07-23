@@ -86,6 +86,7 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
 }
+.grid--dow { margin-bottom: 4px; }
 .grid__dow {
   text-align: center;
   font-size: 0.7rem;
@@ -93,17 +94,24 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
   padding-bottom: 4px;
 }
 
+/* cada semana es su propia grilla: fila 1 = numeros de dia, filas siguientes = carriles de eventos */
+.semana {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-bottom: 3px;
+}
+
 .day {
-  aspect-ratio: 1 / 1;
-  border-radius: 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  min-height: 30px;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-card-2);
+  border: 1px solid #4A5FA8;
+  border-bottom: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   position: relative;
 }
 .day--empty { background: transparent; border: none; }
@@ -113,9 +121,6 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
   border-color: var(--past-border);
   color: var(--past-text);
 }
-.day--past.day--tiene-evento {
-  background: var(--past-bg-evento);
-}
 
 .day--today {
   border: 2px solid var(--gold);
@@ -124,9 +129,40 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
 
 .day__num { font-family: var(--font-mono); font-weight: 700; }
 
-.day__dots { display: flex; gap: 2px; }
-.day__dots .dot { width: 5px; height: 5px; }
-.day--past .day__dots .dot { background: var(--past-text) !important; opacity: 0.55; }
+/* barras de evento sobre el calendario */
+.evento-bar {
+  align-self: center;
+  height: 20px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 6px;
+  font-size: 0.62rem;
+  line-height: 1;
+  color: #0F1A3D;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  /* el background (con degradado pasado/futuro) lo define JS por evento */
+}
+
+.evento-bar--claimed {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.evento-bar__nombre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+.evento-bar__cantidad {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  flex-shrink: 0;
+}
 
 .fuentes { margin-top: 28px; }
 .fuentes h2, .eventos-lista h2 { font-size: 1.1rem; color: var(--gold); margin-bottom: 10px; }
@@ -162,26 +198,27 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
   text-align: right;
 }
 
-.eventos-lista { margin-top: 28px; }
-.evento-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--bg-card);
+.dias-restantes-wrap { display: flex; align-items: center; gap: 6px; }
+.dias-restantes-wrap input[type="text"] {
+  width: 44px;
+  background: var(--bg-night);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--sky);
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-family: var(--font-mono);
+  text-align: center;
 }
-.evento-row--fijo { border-left-color: var(--rose); }
-.evento-row--exploracion { border-left-color: var(--violet); }
-.evento-row--claimed { opacity: 0.5; }
-.evento-row--claimed .evento-row__nombre { text-decoration: line-through; }
-
-.evento-row__nombre { flex: 1; font-size: 0.88rem; }
-.evento-row__fechas { font-size: 0.7rem; color: var(--text-dim); font-family: var(--font-mono); }
-.evento-row__cantidad { font-family: var(--font-mono); color: var(--gold); font-weight: 700; font-size: 0.9rem; min-width: 60px; text-align: right; }
+.icon-btn {
+  background: none;
+  border: none;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.icon-btn:active { background: rgba(255,255,255,0.08); }
 
 .barra-flotante {
   position: fixed;
@@ -189,10 +226,8 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
   background: linear-gradient(180deg, rgba(28,43,92,0.85), rgba(15,26,61,0.97));
   border-top: 1px solid var(--border);
   backdrop-filter: blur(8px);
-  transition: transform 0.25s ease;
   z-index: 20;
 }
-.barra-flotante.oculta { transform: translateY(100%); }
 
 .barra-flotante__inner {
   max-width: 720px;
@@ -221,4 +256,3 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
 @media (min-width: 600px) {
   .barra-flotante__deseos { font-size: 0.9rem; }
 }
-
