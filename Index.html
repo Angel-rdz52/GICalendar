@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora de Protogemas — Teyvat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <h1 class="topbar__title">Protogemas restantes</h1>
+    <label class="selector">
+      <span>Calendario</span>
+      <select id="calendar-select"></select>
+    </label>
+  </div>
+</header>
+
+<main id="app">
+  <section class="intro">
+    <p id="rango-fechas" class="intro__rango">—</p>
+    <p class="intro__hint">Marcá lo que ya reclamaste. El total de abajo se actualiza solo.</p>
+  </section>
+
+  <section class="legend">
+    <span class="legend__item"><i class="dot dot--evento"></i> Evento</span>
+    <span class="legend__item"><i class="dot dot--fijo"></i> Fijo de versión</span>
+    <span class="legend__item"><i class="dot dot--exploracion"></i> Exploración</span>
+    <span class="legend__item"><i class="dot dot--past"></i> Día pasado</span>
+  </section>
+
+  <section id="meses" class="meses"><!-- se rellenan por JS --></section>
+
+  <section class="fuentes">
+    <h2>Fuentes diarias</h2>
+    <div class="fuente-card">
+      <div class="fuente-card__head">
+        <span>Comisiones diarias (60/día)</span>
+        <span id="dias-totales-label" class="fuente-card__sub"></span>
+      </div>
+      <label class="input-row">
+        Días ya reclamados
+        <input type="number" id="diarias-reclamadas" min="0" value="0">
+      </label>
+    </div>
+
+    <div class="fuente-card">
+      <div class="fuente-card__head">
+        <label class="toggle">
+          <input type="checkbox" id="bendicion-activa">
+          Bendición Lunar activa (90/día)
+        </label>
+      </div>
+      <label class="input-row">
+        Días ya reclamados
+        <input type="number" id="bendicion-reclamadas" min="0" value="0" disabled>
+      </label>
+    </div>
+  </section>
+
+  <section id="eventos-lista" class="eventos-lista">
+    <h2>Eventos con protogemas</h2>
+    <!-- filas por JS -->
+  </section>
+</main>
+
+<div id="barra-flotante" class="barra-flotante">
+  <div class="barra-flotante__inner">
+    <div class="barra-flotante__total">
+      <span class="barra-flotante__icon">◈</span>
+      <span id="total-protos">0</span>
+    </div>
+    <div class="barra-flotante__deseos">
+      <em>Aproximadamente</em> ≈ <span id="total-deseos">0</span> deseos entrelazados
+      <span id="resto-protos" class="barra-flotante__resto"></span>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
