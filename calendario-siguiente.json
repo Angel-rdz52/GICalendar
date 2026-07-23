@@ -1,0 +1,12 @@
+{
+  "estado": "en-proceso",
+  "id": null,
+  "version": "Próxima fase",
+  "fechaInicio": null,
+  "fechaFin": null,
+  "fuentesDiarias": {
+    "diarias": { "nombre": "Comisiones diarias", "cantidad": 60 },
+    "bendicionLunar": { "nombre": "Bendición Lunar", "cantidad": 90 }
+  },
+  "eventos": []
+}
