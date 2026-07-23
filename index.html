@@ -6,7 +6,7 @@
 <title>Calculadora de Protogemas — Teyvat</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -23,7 +23,7 @@
 <main id="app">
   <section class="intro">
     <p id="rango-fechas" class="intro__rango">—</p>
-    <p class="intro__hint">Marcá lo que ya reclamaste. El total de abajo se actualiza solo.</p>
+    <p class="intro__hint">Tocá un evento en el calendario para marcarlo como reclamado. El total de abajo se actualiza solo.</p>
   </section>
 
   <section class="legend">
@@ -55,16 +55,29 @@
           Bendición Lunar activa (90/día)
         </label>
       </div>
-      <label class="input-row">
-        Días ya reclamados
-        <input type="number" id="bendicion-reclamadas" min="0" value="0" disabled>
-      </label>
+      <div class="input-row">
+        Días restantes
+        <span class="dias-restantes-wrap">
+          <input type="text" id="bendicion-dias-restantes" value="0" disabled>
+          <button type="button" id="btn-editar-bendicion" class="icon-btn" title="Editar días restantes">✏️</button>
+          <button type="button" id="btn-renovar-bendicion" class="icon-btn" title="Renovar Bendición Lunar (+30 días)">💲</button>
+        </span>
+      </div>
     </div>
   </section>
 
-  <section id="eventos-lista" class="eventos-lista">
-    <h2>Eventos con protogemas</h2>
-    <!-- filas por JS -->
+  <section class="fuentes">
+    <h2>Ya tenés</h2>
+    <div class="fuente-card">
+      <label class="input-row">
+        Protogemas actuales
+        <input type="number" id="protos-actuales" min="0" value="0">
+      </label>
+      <label class="input-row">
+        Deseos entrelazados actuales
+        <input type="number" id="deseos-actuales" min="0" value="0">
+      </label>
+    </div>
   </section>
 </main>
 
@@ -81,6 +94,6 @@
   </div>
 </div>
 
-<script src="js/app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
