@@ -1,12 +1,15 @@
 {
   "estado": "disponible",
-  "id": "luna-viii-fase2",
-  "version": "Luna VIII — Fase 2",
+  "id": "luna-viii",
+  "version": "Luna VIII",
   "fechaInicio": "2026-07-21",
   "fechaFin": "2026-08-11",
   "fuentesDiarias": {
     "diarias": { "nombre": "Comisiones diarias", "cantidad": 60 },
-    "bendicionLunar": { "nombre": "Bendición Lunar", "cantidad": 90 }
+    "bendicionLunar": { "nombre": "Bendición Lunar", "cantidad": 90 },
+    "exploracion": {"nombre": "Exploracion Aprox.", "cantidad": 2020 },
+"Compensacion": {"nombre": "Compensacion Mantenimiento", "cantidad": 600 },
+"Codigos": {"nombre": "Codigos de Programa Especial de siguiente version", "cantidad": 300 }
   },
   "eventos": [
     {
@@ -16,6 +19,22 @@
       "cantidad": 1060,
       "inicio": "2026-07-01",
       "fin": "2026-08-11"
+    },
+{
+      "id": "TiendaPaimonAgo",
+      "nombre": "Tienda de Paimon",
+      "categoria": "Reinicio",
+      "cantidad": 800,
+      "inicio": "2026-08-01",
+      "fin": "2026-08-31"
+    },
+{
+      "id": "TiendaPaimonJul",
+      "nombre": "Tienda de Paimon",
+      "categoria": "Reinicio",
+      "cantidad": 800,
+      "inicio": "2026-07-01",
+      "fin": "2026-07-31"
     },
     {
       "id": "punteria-final",
@@ -40,6 +59,30 @@
       "cantidad": 450,
       "inicio": "2026-07-08",
       "fin": "2026-08-11"
+    },
+{
+      "id": "TeatroFantasiaJul",
+      "nombre": "Teatro Fantasia",
+      "categoria": "fijo",
+      "cantidad": 1000,
+      "inicio": "2026-07-01",
+      "fin": "2026-07-31"
+    },
+{
+      "id": "TeatroFantasiaAgo",
+      "nombre": "Teatro Fantasia",
+      "categoria": "fijo",
+      "cantidad": 1000,
+      "inicio": "2026-08-01",
+      "fin": "2026-08-31"
+    },
+    {
+      "id": "Espiral del Abismo",
+      "nombre": "Espiral del Abismo",
+      "categoria": "fijo",
+      "cantidad": 800,
+      "inicio": "2026-07-16",
+      "fin": "2026-08-15"
     },
     {
       "id": "album-nod-krai",
