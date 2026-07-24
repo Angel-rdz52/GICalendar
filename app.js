@@ -1,5 +1,4 @@
 // ---------- Utilidades de fecha ----------
-const DOW = ["L", "M", "X", "J", "V", "S", "D"];
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
 // colores por categoria: version viva (dias de hoy en adelante) y mutada (dias ya pasados)
@@ -8,30 +7,6 @@ const CATEGORIA_COLOR = {
   fijo:         { viva: "#E39FC2", muted: "#6B4652" },
   exploracion:  { viva: "#A78BFA", muted: "#463B66" }
 };
-
-// arma un degradado de corte duro: oscurecido en los dias ya pasados de esta barra, color normal de hoy en adelante
-function degradadoEvento(diasSemana, colIni, colFin, hoy, categoria) {
-  const colores = CATEGORIA_COLOR[categoria] || CATEGORIA_COLOR.evento;
-  const totalCols = colFin - colIni + 1;
-
-  let colHoyOEnAdelante = -1;
-  for (let c = colIni; c <= colFin; c++) {
-    const d = diasSemana[c];
-    if (d && !isBefore(d, hoy)) { colHoyOEnAdelante = c; break; }
-  }
-
-  if (colHoyOEnAdelante === -1) {
-    // toda la porcion de esta semana ya paso
-    return colores.muted;
-  }
-  if (colHoyOEnAdelante === colIni) {
-    // todavia no empezo a pasar nada de esta porcion
-    return colores.viva;
-  }
-
-  const corte = ((colHoyOEnAdelante - colIni) / totalCols) * 100;
-  return `linear-gradient(to right, ${colores.muted} 0%, ${colores.muted} ${corte}%, ${colores.viva} ${corte}%, ${colores.viva} 100%)`;
-}
 
 function parseISO(s) {
   const [y, m, d] = s.split("-").map(Number);
@@ -49,12 +24,10 @@ function inRange(day, ini, fin) { return !isBefore(day, ini) && !isBefore(fin, d
 function diffDaysInclusive(ini, fin) {
   return Math.round((fin - ini) / 86400000) + 1;
 }
-// lunes=0 ... domingo=6
-function mondayIndex(date) { return (date.getDay() + 6) % 7; }
 
 // ---------- Estado ----------
 let calendarData = null;
-let state = { claimedEventos: {}, diariasReclamadas: 0, bendicionActiva: false, bendicionDiasRestantes: 0, protosActuales: 0, deseosActuales: 0 };
+let state = { claimedEventos: {}, bendicionActiva: false, bendicionDiasRestantes: 0, protosActuales: 0, deseosActuales: 0, ajusteManual: 0 };
 
 function storageKey(calId) { return `genshin-protos::${calId}`; }
 
@@ -126,7 +99,7 @@ async function init() {
 
 async function cargarCalendario(archivo) {
   calendarData = await fetchJSON(archivo);
-  state = { claimedEventos: {}, diariasReclamadas: 0, bendicionActiva: false, bendicionDiasRestantes: 0, protosActuales: 0, deseosActuales: 0 };
+  state = { claimedEventos: {}, bendicionActiva: false, bendicionDiasRestantes: 0, protosActuales: 0, deseosActuales: 0, ajusteManual: 0 };
   loadState(calendarData.id);
   render();
 }
@@ -139,7 +112,8 @@ function render() {
   document.getElementById("rango-fechas").textContent =
     `${calendarData.version} · ${fmtFecha(ini)} — ${fmtFecha(fin)}`;
 
-  renderMeses(ini, fin);
+  renderGantt(ini, fin);
+  bindGanttNav(ini, fin);
   renderFuentesDiarias(ini, fin);
   actualizarTotal();
   bindControlesGlobales(ini, fin);
@@ -149,143 +123,130 @@ function fmtFecha(d) {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function renderMeses(ini, fin) {
-  const cont = document.getElementById("meses");
-  cont.innerHTML = "";
+const DIA_PX = 34; // ancho de cada columna de día en el gantt
+
+function renderGantt(ini, fin) {
   const hoy = todayAtMidnight();
+  const totalDias = diffDaysInclusive(ini, fin);
+  const anchoTotal = totalDias * DIA_PX;
 
-  let cursor = new Date(ini.getFullYear(), ini.getMonth(), 1);
-  const finMes = new Date(fin.getFullYear(), fin.getMonth(), 1);
+  const scroll = document.getElementById("gantt-scroll");
+  scroll.innerHTML = "";
+  scroll.style.width = `${anchoTotal}px`;
 
-  while (cursor <= finMes) {
-    cont.appendChild(renderMes(cursor.getFullYear(), cursor.getMonth(), ini, fin, hoy));
-    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  // ---- cabecera de dias ----
+  const header = document.createElement("div");
+  header.className = "gantt-header";
+  for (let i = 0; i < totalDias; i++) {
+    const fecha = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() + i);
+    const tick = document.createElement("div");
+    tick.className = "gantt-day-tick";
+    if (isBefore(fecha, hoy)) tick.classList.add("gantt-day-tick--past");
+    if (isSameDay(fecha, hoy)) tick.classList.add("gantt-day-tick--today");
+    const esInicioDeMes = fecha.getDate() === 1 || i === 0;
+    tick.innerHTML = (esInicioDeMes ? `<span class="gantt-day-tick__mes">${MESES[fecha.getMonth()].slice(0,3)}</span>` : "") + fecha.getDate();
+    header.appendChild(tick);
   }
-}
+  scroll.appendChild(header);
 
-function renderMes(year, month, rangoIni, rangoFin, hoy) {
-  const wrap = document.createElement("div");
-  wrap.className = "mes";
+  // ---- filas de eventos, ordenadas por inicio ----
+  const rows = document.createElement("div");
+  rows.className = "gantt-rows";
 
-  const titulo = document.createElement("div");
-  titulo.className = "mes__titulo";
-  titulo.textContent = `${MESES[month]} ${year}`;
-  wrap.appendChild(titulo);
+  const eventos = (calendarData.eventos || [])
+    .filter(ev => ev.cantidad > 0 || ev.nota)
+    .map(ev => ({ ev, evIni: parseISO(ev.inicio), evFin: parseISO(ev.fin) }))
+    .filter(({ evIni, evFin }) => !isBefore(evFin, ini) && !isBefore(fin, evIni)) // que toquen el rango de la fase
+    .sort((a, b) => a.evIni - b.evIni);
 
-  const dow = document.createElement("div");
-  dow.className = "grid grid--dow";
-  DOW.forEach(d => {
-    const el = document.createElement("div");
-    el.className = "grid__dow";
-    el.textContent = d;
-    dow.appendChild(el);
-  });
-  wrap.appendChild(dow);
+  eventos.forEach(({ ev, evIni, evFin }) => {
+    const row = document.createElement("div");
+    row.className = "gantt-row";
 
-  const primerDia = new Date(year, month, 1);
-  const ultimoDia = new Date(year, month + 1, 0);
-
-  // armamos la grilla de fechas del mes en semanas de 7 (lunes a domingo)
-  const dias = [];
-  const huecosIniciales = mondayIndex(primerDia);
-  for (let i = 0; i < huecosIniciales; i++) dias.push(null);
-  for (let d = 1; d <= ultimoDia.getDate(); d++) dias.push(new Date(year, month, d));
-  while (dias.length % 7 !== 0) dias.push(null);
-
-  for (let i = 0; i < dias.length; i += 7) {
-    wrap.appendChild(renderSemana(dias.slice(i, i + 7), rangoIni, rangoFin, hoy));
-  }
-
-  return wrap;
-}
-
-function renderSemana(diasSemana, rangoIni, rangoFin, hoy) {
-  const semana = document.createElement("div");
-  semana.className = "semana";
-
-  // fila de numeros de dia
-  diasSemana.forEach((date, col) => {
-    const cell = document.createElement("div");
-    cell.className = "day";
-    cell.style.gridColumn = String(col + 1);
-    cell.style.gridRow = "1";
-
-    if (!date) {
-      cell.classList.add("day--empty");
-    } else {
-      const esPasado = isBefore(date, hoy);
-      const esHoy = isSameDay(date, hoy);
-      const fueraDeRango = isBefore(date, rangoIni) || isBefore(rangoFin, date);
-      if (esPasado) cell.classList.add("day--past");
-      if (esHoy) cell.classList.add("day--today");
-      if (fueraDeRango) cell.style.opacity = "0.35";
-      const num = document.createElement("span");
-      num.className = "day__num";
-      num.textContent = date.getDate();
-      cell.appendChild(num);
-    }
-    semana.appendChild(cell);
-  });
-
-  // eventos que tocan esta semana, ordenados por inicio y duracion
-  const primerDiaSemana = diasSemana.find(d => d);
-  const ultimoDiaSemana = [...diasSemana].reverse().find(d => d);
-  if (!primerDiaSemana) return semana;
-
-  const eventosSemana = (calendarData.eventos || [])
-    .filter(ev => ev.cantidad > 0 || ev.nota) // se muestran igual eventos con cantidad 0 si tienen nota, para recordar completarlos
-    .map(ev => ({ ev, ini: parseISO(ev.inicio), fin: parseISO(ev.fin) }))
-    .filter(({ ini, fin }) => inRange(primerDiaSemana, ini, fin) || inRange(ultimoDiaSemana, ini, fin) || (isBefore(ini, primerDiaSemana) && isBefore(ultimoDiaSemana, fin)) || inRange(ini, primerDiaSemana, ultimoDiaSemana))
-    .sort((a, b) => a.ini - b.ini || (b.fin - b.ini) - (a.fin - a.ini));
-
-  // asignar "carriles" (lanes) para que no se superpongan visualmente
-  const lanes = []; // cada lane guarda la ultima columna ocupada
-  eventosSemana.forEach(item => {
-    const colIni = diasSemana.findIndex(d => d && !isBefore(d, item.ini) && !isBefore(item.fin, d));
-    let colFin = colIni;
-    diasSemana.forEach((d, idx) => { if (d && inRange(d, item.ini, item.fin)) colFin = idx; });
-    if (colIni === -1) return;
-
-    let laneIdx = lanes.findIndex(occupiedUntil => occupiedUntil < colIni);
-    if (laneIdx === -1) { laneIdx = lanes.length; lanes.push(-1); }
-    lanes[laneIdx] = colFin;
+    const clipIni = evIni < ini ? ini : evIni;
+    const clipFin = evFin > fin ? fin : evFin;
+    const offsetIni = diffDaysInclusive(ini, clipIni) - 1;
+    const offsetFin = diffDaysInclusive(ini, clipFin) - 1;
 
     const bar = document.createElement("div");
-    const categoria = item.ev.categoria || "evento";
-    bar.className = "evento-bar";
-    if (state.claimedEventos[item.ev.id]) bar.classList.add("evento-bar--claimed");
-
-    bar.style.background = degradadoEvento(diasSemana, colIni, colFin, hoy, categoria);
-
-    bar.style.gridColumn = `${colIni + 1} / ${colFin + 2}`;
-    bar.style.gridRow = String(laneIdx + 2);
-
-    bar.innerHTML = `<span class="evento-bar__nombre">${item.ev.nombre}</span><span class="evento-bar__cantidad">◈${item.ev.cantidad}</span>`;
-    bar.title = `${item.ev.nombre} — ${item.ev.cantidad} protogemas (tocá para marcar como reclamado)`;
+    const categoria = ev.categoria || "evento";
+    bar.className = "gantt-bar";
+    if (state.claimedEventos[ev.id]) bar.classList.add("gantt-bar--claimed");
+    bar.style.left = `${offsetIni * DIA_PX}px`;
+    bar.style.width = `${(offsetFin - offsetIni + 1) * DIA_PX - 3}px`;
+    bar.style.background = degradadoEventoGantt(offsetIni, offsetFin, ini, hoy, categoria);
+    bar.innerHTML = `<span class="gantt-bar__nombre">${ev.nombre}</span><span class="gantt-bar__cantidad">◈${ev.cantidad}</span>`;
+    bar.title = `${ev.nombre} — ${ev.cantidad} protogemas (tocá para marcar como reclamado)`;
 
     bar.addEventListener("click", () => {
-      state.claimedEventos[item.ev.id] = !state.claimedEventos[item.ev.id];
+      state.claimedEventos[ev.id] = !state.claimedEventos[ev.id];
       saveState(calendarData.id);
-      renderMeses(parseISO(calendarData.fechaInicio), parseISO(calendarData.fechaFin));
+      renderGantt(ini, fin);
       actualizarTotal();
     });
 
-    semana.appendChild(bar);
+    row.appendChild(bar);
+    rows.appendChild(row);
   });
 
-  const filas = 1 + Math.max(1, lanes.length);
-  semana.style.gridTemplateRows = `auto repeat(${Math.max(1, lanes.length)}, 22px)`;
+  scroll.appendChild(rows);
 
-  return semana;
+  // ---- linea vertical de "hoy" ----
+  if (!isBefore(hoy, ini) && !isBefore(fin, hoy)) {
+    const offsetHoy = diffDaysInclusive(ini, hoy) - 1;
+    const linea = document.createElement("div");
+    linea.className = "gantt-today-line";
+    linea.style.left = `${offsetHoy * DIA_PX + DIA_PX / 2}px`;
+    linea.style.height = `${32 + eventos.length * 30}px`;
+    scroll.appendChild(linea);
+  }
+
+  return { totalDias, offsetHoy: !isBefore(hoy, ini) && !isBefore(fin, hoy) ? diffDaysInclusive(ini, hoy) - 1 : 0 };
+}
+
+// arma un degradado de corte duro para el gantt: oscurecido antes de hoy, color normal de hoy en adelante
+function degradadoEventoGantt(offsetIni, offsetFin, rangoIni, hoy, categoria) {
+  const colores = CATEGORIA_COLOR[categoria] || CATEGORIA_COLOR.evento;
+  const offsetHoy = diffDaysInclusive(rangoIni, hoy) - 1;
+
+  if (offsetHoy > offsetFin) return colores.muted;   // toda la barra ya paso
+  if (offsetHoy <= offsetIni) return colores.viva;   // todavia no empezo a pasar nada
+
+  const totalCols = offsetFin - offsetIni + 1;
+  const corte = ((offsetHoy - offsetIni) / totalCols) * 100;
+  return `linear-gradient(to right, ${colores.muted} 0%, ${colores.muted} ${corte}%, ${colores.viva} ${corte}%, ${colores.viva} 100%)`;
+}
+
+function bindGanttNav(ini, fin) {
+  const scroll = document.getElementById("gantt-scroll");
+  const wrap = document.getElementById("gantt");
+  const label = document.getElementById("gantt-nav-label");
+  const btnPrev = document.getElementById("gantt-prev");
+  const btnNext = document.getElementById("gantt-next");
+
+  function actualizarLabel() {
+    const offsetVisible = Math.round(wrap.scrollLeft / DIA_PX);
+    const fecha = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() + offsetVisible);
+    label.textContent = `${MESES[fecha.getMonth()]} ${fecha.getFullYear()}`;
+  }
+
+  btnPrev.onclick = () => { wrap.scrollBy({ left: -DIA_PX * 7, behavior: "smooth" }); };
+  btnNext.onclick = () => { wrap.scrollBy({ left: DIA_PX * 7, behavior: "smooth" }); };
+  wrap.onscroll = actualizarLabel;
+
+  // arrancamos centrados en hoy si esta dentro del rango
+  const hoy = todayAtMidnight();
+  if (!isBefore(hoy, ini) && !isBefore(fin, hoy)) {
+    const offsetHoy = diffDaysInclusive(ini, hoy) - 1;
+    wrap.scrollLeft = Math.max(0, offsetHoy * DIA_PX - DIA_PX * 2);
+  }
+  actualizarLabel();
 }
 
 function renderFuentesDiarias(ini, fin) {
-  const totalDias = diffDaysInclusive(ini, fin);
-  document.getElementById("dias-totales-label").textContent = `${totalDias} días en esta fase`;
-
-  const diariasInput = document.getElementById("diarias-reclamadas");
-  diariasInput.value = state.diariasReclamadas;
-  diariasInput.max = totalDias;
+  const diasRestantes = diasRestantesDesdeHoy(fin);
+  document.getElementById("dias-restantes-diarias").textContent =
+    `${diasRestantes} días × 60 ≈ ${diasRestantes * 60} ◈`;
 
   const bendicionCheck = document.getElementById("bendicion-activa");
   const bendicionDiasInput = document.getElementById("bendicion-dias-restantes");
@@ -293,19 +254,33 @@ function renderFuentesDiarias(ini, fin) {
   bendicionDiasInput.value = state.bendicionDiasRestantes;
 
   document.getElementById("protos-actuales").value = state.protosActuales;
+  document.getElementById("protos-actuales-mini").value = state.protosActuales;
   document.getElementById("deseos-actuales").value = state.deseosActuales;
+  document.getElementById("deseos-actuales-mini").value = state.deseosActuales;
+}
+
+// dias que quedan desde hoy hasta fin (inclusive), 0 si la fase ya termino
+function diasRestantesDesdeHoy(fin) {
+  const hoy = todayAtMidnight();
+  if (isBefore(fin, hoy)) return 0;
+  return diffDaysInclusive(hoy, fin);
+}
+
+// cuenta cuantos reinicios de tienda mensual (dia 1) quedan entre hoy y fin, inclusive
+function contarReiniciosTienda(fin) {
+  const hoy = todayAtMidnight();
+  if (isBefore(fin, hoy)) return 0;
+  let cursor = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  if (hoy.getDate() > 1) cursor = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1); // el de este mes ya paso
+  let count = 0;
+  while (!isBefore(fin, cursor)) {
+    count++;
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+  return count;
 }
 
 function bindControlesGlobales(ini, fin) {
-  const totalDias = diffDaysInclusive(ini, fin);
-
-  const diariasInput = document.getElementById("diarias-reclamadas");
-  diariasInput.oninput = () => {
-    state.diariasReclamadas = clamp(Number(diariasInput.value) || 0, 0, totalDias);
-    saveState(calendarData.id);
-    actualizarTotal();
-  };
-
   const bendicionCheck = document.getElementById("bendicion-activa");
   const bendicionDiasInput = document.getElementById("bendicion-dias-restantes");
   const btnEditar = document.getElementById("btn-editar-bendicion");
@@ -346,15 +321,69 @@ function bindControlesGlobales(ini, fin) {
   };
 
   const protosInput = document.getElementById("protos-actuales");
+  const protosInputMini = document.getElementById("protos-actuales-mini");
   protosInput.oninput = () => {
     state.protosActuales = Math.max(0, Number(protosInput.value) || 0);
+    protosInputMini.value = state.protosActuales;
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+  protosInputMini.oninput = () => {
+    state.protosActuales = Math.max(0, Number(protosInputMini.value) || 0);
+    protosInput.value = state.protosActuales;
     saveState(calendarData.id);
     actualizarTotal();
   };
 
   const deseosInput = document.getElementById("deseos-actuales");
+  const deseosInputMini = document.getElementById("deseos-actuales-mini");
   deseosInput.oninput = () => {
     state.deseosActuales = Math.max(0, Number(deseosInput.value) || 0);
+    deseosInputMini.value = state.deseosActuales;
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+  deseosInputMini.oninput = () => {
+    state.deseosActuales = Math.max(0, Number(deseosInputMini.value) || 0);
+    deseosInput.value = state.deseosActuales;
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+
+  document.getElementById("toggle-ya-tengo").onclick = (e) => {
+    e.stopPropagation();
+    document.getElementById("ya-tengo-inline").classList.toggle("ya-tengo-inline--oculto");
+  };
+
+  // ---- panel de desglose ----
+  const toggleBtn = document.getElementById("barra-flotante-toggle");
+  const panel = document.getElementById("desglose-panel");
+  const chevron = document.getElementById("barra-flotante-chevron");
+  toggleBtn.onclick = () => {
+    const abierto = panel.classList.toggle("desglose-panel--oculto") === false;
+    chevron.classList.toggle("barra-flotante__chevron--abierto", abierto);
+  };
+
+  const ajusteInput = document.getElementById("ajuste-manual");
+  ajusteInput.value = state.ajusteManual;
+  ajusteInput.onclick = (e) => e.stopPropagation();
+  ajusteInput.oninput = () => {
+    state.ajusteManual = Number(ajusteInput.value) || 0;
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+
+  document.getElementById("ajuste-menos").onclick = (e) => {
+    e.stopPropagation();
+    state.ajusteManual = (state.ajusteManual || 0) - 10;
+    ajusteInput.value = state.ajusteManual;
+    saveState(calendarData.id);
+    actualizarTotal();
+  };
+  document.getElementById("ajuste-mas").onclick = (e) => {
+    e.stopPropagation();
+    state.ajusteManual = (state.ajusteManual || 0) + 10;
+    ajusteInput.value = state.ajusteManual;
     saveState(calendarData.id);
     actualizarTotal();
   };
@@ -363,12 +392,10 @@ function bindControlesGlobales(ini, fin) {
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
 function actualizarTotal() {
-  const ini = parseISO(calendarData.fechaInicio);
   const fin = parseISO(calendarData.fechaFin);
-  const totalDias = diffDaysInclusive(ini, fin);
+  const diasRestantes = diasRestantesDesdeHoy(fin);
 
-  const potencialDiarias = calendarData.fuentesDiarias.diarias.cantidad * totalDias;
-  const yaReclamadasDiarias = calendarData.fuentesDiarias.diarias.cantidad * state.diariasReclamadas;
+  const aporteDiarias = calendarData.fuentesDiarias.diarias.cantidad * diasRestantes;
 
   // la Bendición Lunar ya representa "lo que falta" directamente en días restantes, no hay nada que restarle
   const aporteBendicion = state.bendicionActiva
@@ -378,20 +405,37 @@ function actualizarTotal() {
   const eventos = calendarData.eventos || [];
   const potencialEventos = eventos.reduce((acc, ev) => acc + ev.cantidad, 0);
   const yaReclamadosEventos = eventos.reduce((acc, ev) => acc + (state.claimedEventos[ev.id] ? ev.cantidad : 0), 0);
+  const aporteEventos = Math.max(0, potencialEventos - yaReclamadosEventos);
 
-  const potencialTotal = potencialDiarias + potencialEventos;
-  const yaReclamado = yaReclamadasDiarias + yaReclamadosEventos;
-  const restanteVersion = Math.max(0, potencialTotal - yaReclamado) + aporteBendicion;
+  const ajuste = state.ajusteManual || 0;
 
-  const yaTengo = (state.protosActuales || 0) + (state.deseosActuales || 0) * 160;
-  const total = restanteVersion + yaTengo;
+  // protogemas "puras": todo lo que se convierte a deseos dividiendo por 160
+  const protosYaTengo = state.protosActuales || 0;
+  const totalProtogemas = Math.max(0, aporteDiarias + aporteEventos + aporteBendicion + protosYaTengo + ajuste);
 
-  const deseos = Math.floor(total / 160);
-  const resto = total % 160;
+  // deseos "puros": no pasan por la conversion de protogemas, se suman directo
+  const reinicios = contarReiniciosTienda(fin);
+  const deseosTiendaEntrelazados = reinicios * 5;
+  const deseosTiendaNormales = reinicios * 5; // banner estandar, informativo aparte
+  const deseosYaTengo = state.deseosActuales || 0;
 
-  document.getElementById("total-protos").textContent = total.toLocaleString("es");
-  document.getElementById("total-deseos").textContent = deseos;
-  document.getElementById("resto-protos").textContent = resto > 0 ? `(sobran ${resto} ◈ para el próximo deseo)` : "";
+  const deseosDerivados = Math.floor(totalProtogemas / 160);
+  const restoProtogemas = totalProtogemas % 160;
+  const deseosTotal = deseosDerivados + deseosYaTengo + deseosTiendaEntrelazados;
+
+  document.getElementById("total-protos").textContent = totalProtogemas.toLocaleString("es");
+  document.getElementById("total-deseos").textContent = deseosTotal;
+  document.getElementById("resto-protos").textContent = restoProtogemas > 0 ? `(sobran ${restoProtogemas} ◈ de las convertibles, + ${deseosYaTengo + deseosTiendaEntrelazados} deseos puros)` : (deseosYaTengo + deseosTiendaEntrelazados > 0 ? `(incluye ${deseosYaTengo + deseosTiendaEntrelazados} deseos puros)` : "");
+
+  // ---- desglose ----
+  const fmt = n => `${n >= 0 ? "" : "−"}◈${Math.abs(n).toLocaleString("es")}`;
+  document.getElementById("desglose-diarias").textContent = fmt(aporteDiarias);
+  document.getElementById("desglose-bendicion").textContent = fmt(aporteBendicion);
+  document.getElementById("desglose-eventos").textContent = fmt(aporteEventos);
+  document.getElementById("desglose-ya-tengo").textContent = `${fmt(protosYaTengo)} + ${deseosYaTengo} deseos`;
+  document.getElementById("desglose-tienda-entrelazados").textContent = `+${deseosTiendaEntrelazados} deseos (${reinicios} reinicio${reinicios === 1 ? "" : "s"})`;
+  document.getElementById("desglose-tienda-normales").textContent = `+${deseosTiendaNormales} deseos`;
+  document.getElementById("desglose-total").textContent = `${fmt(totalProtogemas)} ≈ ${deseosTotal} deseos`;
 }
 
 init().catch(err => {
