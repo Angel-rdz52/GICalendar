@@ -33,19 +33,25 @@
     <span class="legend__item"><i class="dot dot--past"></i> Día pasado</span>
   </section>
 
-  <section id="meses" class="meses"><!-- se rellenan por JS --></section>
+  <div class="mes-nav">
+    <button type="button" id="gantt-prev" class="mes-nav__btn" aria-label="Retroceder una semana">‹</button>
+    <span id="gantt-nav-label" class="mes-nav__titulo"></span>
+    <button type="button" id="gantt-next" class="mes-nav__btn" aria-label="Avanzar una semana">›</button>
+  </div>
+  <section id="gantt" class="gantt-wrap">
+    <div id="gantt-scroll" class="gantt-scroll"><!-- se rellena por JS --></div>
+  </section>
 
   <section class="fuentes">
     <h2>Fuentes diarias</h2>
     <div class="fuente-card">
       <div class="fuente-card__head">
         <span>Comisiones diarias (60/día)</span>
-        <span id="dias-totales-label" class="fuente-card__sub"></span>
       </div>
-      <label class="input-row">
-        Días ya reclamados
-        <input type="number" id="diarias-reclamadas" min="0" value="0">
-      </label>
+      <div class="input-row">
+        Días restantes de la fase
+        <span id="dias-restantes-diarias" class="fuente-card__sub"></span>
+      </div>
     </div>
 
     <div class="fuente-card">
@@ -82,16 +88,72 @@
 </main>
 
 <div id="barra-flotante" class="barra-flotante">
-  <div class="barra-flotante__inner">
+  <div id="desglose-panel" class="desglose-panel desglose-panel--oculto">
+    <div class="desglose-row">
+      <span>Comisiones diarias</span>
+      <span id="desglose-diarias">◈0</span>
+    </div>
+    <div class="desglose-row">
+      <span>Bendición Lunar</span>
+      <span id="desglose-bendicion">◈0</span>
+    </div>
+    <div class="desglose-row">
+      <span>Eventos pendientes</span>
+      <span id="desglose-eventos">◈0</span>
+    </div>
+    <div class="desglose-row">
+      <span>Ya tenés (protos + deseos)</span>
+      <span id="desglose-ya-tengo">◈0</span>
+    </div>
+
+    <div class="desglose-link-wrap">
+      <button type="button" id="toggle-ya-tengo" class="link-btn">¿Querés sumar tus protogemas?</button>
+    </div>
+    <div id="ya-tengo-inline" class="ya-tengo-inline ya-tengo-inline--oculto">
+      <label class="input-row-mini">
+        Protogemas
+        <input type="number" id="protos-actuales-mini" min="0" value="0">
+      </label>
+      <label class="input-row-mini">
+        Deseos entrelazados
+        <input type="number" id="deseos-actuales-mini" min="0" value="0">
+      </label>
+    </div>
+
+    <div class="desglose-row">
+      <span>Reinicio tienda (deseos entrelazados)</span>
+      <span id="desglose-tienda-entrelazados">+0 deseos</span>
+    </div>
+    <div class="desglose-row desglose-row--sub">
+      <span>Reinicio tienda (deseos normales, banner estándar)</span>
+      <span id="desglose-tienda-normales">+0 deseos</span>
+    </div>
+
+    <div class="desglose-row desglose-row--ajuste">
+      <span>Ajuste manual</span>
+      <span class="ajuste-controles">
+        <button type="button" id="ajuste-menos" class="icon-btn" aria-label="Restar del ajuste">−</button>
+        <input type="number" id="ajuste-manual" value="0">
+        <button type="button" id="ajuste-mas" class="icon-btn" aria-label="Sumar al ajuste">+</button>
+      </span>
+    </div>
+    <div class="desglose-row desglose-row--total">
+      <span>Total</span>
+      <span id="desglose-total">◈0</span>
+    </div>
+  </div>
+
+  <button type="button" id="barra-flotante-toggle" class="barra-flotante__inner">
     <div class="barra-flotante__total">
       <span class="barra-flotante__icon">◈</span>
       <span id="total-protos">0</span>
+      <span class="barra-flotante__chevron" id="barra-flotante-chevron">▲</span>
     </div>
     <div class="barra-flotante__deseos">
       <em>Aproximadamente</em> ≈ <span id="total-deseos">0</span> deseos entrelazados
       <span id="resto-protos" class="barra-flotante__resto"></span>
     </div>
-  </div>
+  </button>
 </div>
 
 <script src="app.js"></script>
