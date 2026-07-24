@@ -20,22 +20,6 @@
       "inicio": "2026-07-01",
       "fin": "2026-08-11"
     },
-{
-      "id": "TiendaPaimonAgo",
-      "nombre": "Tienda de Paimon",
-      "categoria": "Reinicio",
-      "cantidad": 800,
-      "inicio": "2026-08-01",
-      "fin": "2026-08-31"
-    },
-{
-      "id": "TiendaPaimonJul",
-      "nombre": "Tienda de Paimon",
-      "categoria": "Reinicio",
-      "cantidad": 800,
-      "inicio": "2026-07-01",
-      "fin": "2026-07-31"
-    },
     {
       "id": "punteria-final",
       "nombre": "Puntería final a larga distancia",
